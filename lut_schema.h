@@ -4,8 +4,8 @@
 #include <queue>
 #include <algorithm>
 
-#define MAXPOP	100
-#define MAXTESTS	100
+#define MAXPOP	25
+#define MAX_ITERATIONS	100
 
 using namespace std;
 
@@ -65,13 +65,14 @@ struct gene {
 	int fitness;
 	double likelihood;
 	int lut_count;
+	int bytes_count;
 
-	gene(int _lut_count):lut_count(_lut_count) {
+	gene(int _lut_count,int _bytes_count):lut_count(_lut_count),bytes_count(_bytes_count) {
 		vector<bool> vec = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
         for (int i=0;i<lut_count*16;++i) {
 			lut_values.push_back(0);
 		}
-		int lut_connections_count = 10+10+lut_count;
+		int lut_connections_count = bytes_count*2+bytes_count*2+lut_count;
 		for (int i=0;i<lut_connections_count*lut_connections_count*2;++i) {
 			lut_connections.push_back(0);
 		}
@@ -85,7 +86,7 @@ struct gene {
 		for (int i=0;i<lut_count*16;i++) {
 			if (gn.lut_values[i] != lut_values[i]) return false;
 		}
-		int lut_connections_count = 10+10+lut_count;
+		int lut_connections_count = bytes_count*2+bytes_count*2+lut_count;
         for (int i=0;i<lut_connections_count*lut_connections_count*2;i++) {
 			if (gn.lut_connections[i] != lut_connections[i]) return false;
 		}
@@ -105,14 +106,20 @@ struct gene {
 
 class LUT_Schema {
 	public:
-		LUT_Schema(int);// Constructor with coefficients for a,b,c,d.
+		LUT_Schema(int,int,int);// Constructor with coefficients for a,b,c,d.
 		int Solve();// Solve the equation.
+		int lut_count;
+		int bytes_count;
+		int left_border;
+		int right_border;
+		int best_lut_count;
+		int best_fitness;
+		gene best_gene;
 
 		// Returns a given gene.
 		gene GetGene(int i) { return population[i];}
 
 	protected:
-		int lut_count;
 		vector<gene> population;// Population.
 
 		int Fitness(gene &,int,int);// Fitness function.
@@ -126,64 +133,149 @@ class LUT_Schema {
 
 };
 
-LUT_Schema::LUT_Schema(int _lut_count) : lut_count(_lut_count) {
-    for (int i=0;i<MAXPOP;++i) {
-        population.push_back(gene(_lut_count));
+LUT_Schema::LUT_Schema(int _bytes_count,int _left_border,int _right_border):bytes_count(_bytes_count),
+                    left_border(_left_border),right_border(_right_border),best_gene(0,bytes_count) {
+    if (left_border<1) {
+        left_border=1;
     }
+    if (right_border<1) {
+        right_border=1;
+    }
+    best_fitness=-1;
+    best_lut_count=0;
+
 }
 
 int LUT_Schema::Solve() {
-	int fitness = -1;
-
-	// Generate initial population.
 	srand((unsigned)time(NULL));
+	for (lut_count=left_border;lut_count<=right_border;++lut_count) {
+        cout << "Solving for LUT count equal to " << lut_count << endl;
+        population.clear();
 
-	int lut_connections_count = 10+10+lut_count;
-	for(int i=0;i<MAXPOP;i++) {// Fill the population with numbers between
-		cout << "Gene " << i << " is being created" << endl;
-		for (int j=0;j<lut_count*16;j++) {// 0 and the result.
-			population[i].lut_values[j] = rand() % 2;
-		}
-		cout << "LUT values are set" << endl;
-		for (int j=10;j<lut_connections_count-10;++j) {
-            vector<bool> v;
-            for (int k=0;k<16;++k) {
-                v.push_back(population[i].lut_values[(j-10)*16+k]);
+        for (int i=0;i<MAXPOP;++i) {
+            population.push_back(gene(lut_count,bytes_count));
+        }
+        // Generate initial population.
+
+        int lut_connections_count = bytes_count*2+bytes_count*2+lut_count;
+        for(int i=0;i<MAXPOP;i++) {// Fill the population with numbers between
+            cout << "Gene " << i << " is being created" << endl;
+            for (int j=0;j<lut_count*16;j++) {// 0 and the result.
+                population[i].lut_values[j] = rand() % 2;
             }
-            population[i].luts[j].output = v;
-		}
-		cout << "luts are created" << endl;
-		for (int j=0;j<lut_connections_count*lut_connections_count*2;j++) {// 0 and the result.
-            if (j/(lut_connections_count*2)<(j%(lut_connections_count*2))/2
-                && (j%(lut_connections_count*2))/2>=10)
-                population[i].lut_connections[j] = rand() % 2;
-            else
-                population[i].lut_connections[j] = 0;
-		}
-		cout << "LUTs connections are set" << endl;
-	}
-	cout << "Generated starting population" << endl;
+            cout << "LUT values are set" << endl;
+            /*if (i==0) {
+                cout << "For gene " << i << " lut values are: ";
+                for (int j=0;j<lut_count*16;++j) {
+                    cout << population[i].lut_values[j] << " ";
+                }
+                cout << endl;
+            }*/
+            for (int j=bytes_count*2;j<lut_connections_count-bytes_count*2;++j) {
+                vector<bool> v;
+                for (int k=0;k<16;++k) {
+                    v.push_back(population[i].lut_values[(j-bytes_count*2)*16+k]);
+                }
+                population[i].luts[j].output = v;
+            }
+            cout << "LUTs are created" << endl;
+            /*if (i==0) {
+                cout << "For gene " << i << " LUTs are: " << endl;
+                for (int j=bytes_count*2;j<lut_connections_count-bytes_count*2;++j) {
+                    cout << "LUT " << j << " has values: ";
+                    for (int k=0;k<16;++k) {
+                        cout << population[i].luts[j].output[k] << " ";
+                    }
+                    cout << endl;
+                }
+            }*/
+            for (int j=0;j<lut_connections_count*lut_connections_count*2;j++) {// 0 and the result.
+                if (j/(lut_connections_count*2)<bytes_count*2
+                    && (j%(lut_connections_count*2))/2>=(lut_connections_count-bytes_count*2)) {
+                    population[i].lut_connections[j] = 0;
+                }
+                else if (j/(lut_connections_count*2)<(j%(lut_connections_count*2))/2
+                    && (j%(lut_connections_count*2))/2>=bytes_count*2)
+                    population[i].lut_connections[j] = rand() % 2;
+                else
+                    population[i].lut_connections[j] = 0;
+            }
+            cout << "LUTs connections are set" << endl;
+            /*if (i==0) {
+                cout << "For gene " << i << " LUT connections are: " << endl;
+                for (int j=0;j<lut_connections_count;++j) {
+                    for (int k=0;k<lut_connections_count*2;k++) {// 0 and the result.
+                        cout << population[i].lut_connections[j*lut_connections_count*2+k] << " ";
+                    }
+                    cout << endl;
+                }
 
-	if ((fitness = CreateFitnesses())) {
-		return fitness;
-	}
-	cout << "Counted fitness " << fitness << endl;
+                cout << endl;
+            }*/
+        }
+        cout << "Generated starting population" << endl;
 
-	int iterations = 0;// Keep record of the iterations.
-	while (fitness != 0 || iterations < 100) {// Repeat until solution found, or over 50 iterations.
-        cout << "Started iteration " << iterations << endl;
-		GenerateLikelihoods();// Create the likelihoods.
-        cout << "Generated Likelihoods iteration " << iterations << endl;
-		CreateNewPopulation();
-        cout << "Created Population iteration " << iterations << endl;
-		if ((fitness = CreateFitnesses())) {
-			return fitness;
-		}
-        cout << "Counted fitness iteration " << iterations << ": " << fitness << endl;
-		iterations++;
-	}
+        CreateFitnesses();
 
-	return -1;
+        int min_fitness=population[0].fitness;
+        gene min_gene=population[0];
+
+        for(int i=1;i<MAXPOP;i++) {
+            min_fitness=min(min_fitness,population[i].fitness);
+            min_gene=population[0];
+        }
+
+        cout << "Counted best fitness of starting iteration: " << min_fitness << endl;
+        if (best_fitness==-1 ||  min_fitness<best_fitness) {
+            best_fitness=min_fitness;
+            best_gene=min_gene;
+            best_lut_count=lut_count;
+            cout << "Best fitness was updated. New value is " << best_fitness << ". LUT count is " << lut_count << endl;
+        }
+
+
+        /*if ((fitness = CreateFitnesses())) {
+            return fitness;
+        }*/
+        //cout << "Counted fitness " << fitness << endl;
+
+        int iterations = 0;// Keep record of the iterations.
+        while (min_fitness != 0 && iterations < MAX_ITERATIONS) {// Repeat until solution found, or over 50 iterations.
+            cout << "Started iteration " << iterations << endl;
+            GenerateLikelihoods();// Create the likelihoods.
+            cout << "Generated Likelihoods iteration " << iterations << endl;
+            CreateNewPopulation();
+            cout << "Created Population iteration " << iterations << endl;
+            CreateFitnesses();
+            /*if ((fitness = CreateFitnesses())) {
+                return fitness;
+            }*/
+            min_fitness=population[0].fitness;
+            gene min_gene=population[0];
+
+            for(int i=1;i<MAXPOP;i++) {
+                min_fitness=min(min_fitness,population[i].fitness);
+                min_gene=population[0];
+            }
+
+            cout << "Counted best fitness of iteration " << iterations << ": " << min_fitness << endl;
+            if (best_fitness==-1 ||  min_fitness<best_fitness) {
+                best_fitness=min_fitness;
+                best_gene=min_gene;
+                best_lut_count=lut_count;
+                cout << "Best fitness was updated. New value is " << best_fitness << ". LUT count is " << lut_count << endl;
+            }
+            iterations++;
+        }
+    }
+    /*    if (flag) {
+            r=m;
+        }
+        else {
+            l=m;
+        }
+	}*/
+	return 0;
 }
 
 int LUT_Schema::Fitness(gene &gn,int num1,int num2) {
@@ -191,7 +283,7 @@ int LUT_Schema::Fitness(gene &gn,int num1,int num2) {
 	int _num1,_num2;
 	_num1=num1;
 	_num2=num2;
-	for (int i=0;i<5;++i) {
+	for (int i=0;i<bytes_count;++i) {
 		number1.push_back(_num1%2);
 		_num1/=2;
 		number2.push_back(_num2%2);
@@ -199,19 +291,30 @@ int LUT_Schema::Fitness(gene &gn,int num1,int num2) {
 	}
 	reverse(number1.begin(),number1.end());
 	reverse(number2.begin(),number2.end());
+	/*if (num1==2 && num2==3) {
+        cout << "NUMBERS ARE: " << endl << "NUMBER1: ";
+        for (int i=0;i<bytes_count;++i) {
+            cout << number1[i];
+        }
+        cout << endl << "NUMBER2: ";
+        for (int i=0;i<bytes_count;++i) {
+            cout << number2[i];
+        }
+        cout << endl;
+	}*/
     queue<int> q;
-    int lut_connections_count = 10+10+lut_count;
+    int lut_connections_count = bytes_count*2+bytes_count*2+lut_count;
     int used[lut_connections_count];
     for (int i=0;i<lut_connections_count;++i) {
         used[i]=0;
     }
-    for (int i=0;i<(lut_connections_count*2)*10; ++i) {
-        if (gn.lut_connections[i]) {
+    for (int i=0;i<(lut_connections_count*2)*bytes_count*2; ++i) {
+        if (gn.lut_connections[i] && i%2==0) {
                 //gn.luts[(i%(lut_connections_count*2))/2].input.push_back(i/(lut_connections_count*2));
-                if (i/(lut_connections_count*2)<5)
+                if (i/(lut_connections_count*2)<bytes_count)
                     gn.luts[(i%(lut_connections_count*2))/2].input.push_back(number1[i/(lut_connections_count*2)]);
                 else {
-                    gn.luts[(i%(lut_connections_count*2))/2].input.push_back(number2[i/(lut_connections_count*2)-5]);
+                    gn.luts[(i%(lut_connections_count*2))/2].input.push_back(number2[i/(lut_connections_count*2)-bytes_count]);
                 }
                 if (!used[(i%(lut_connections_count*2))/2]) {
                     used[(i%(lut_connections_count*2))/2]=1;
@@ -224,6 +327,7 @@ int LUT_Schema::Fitness(gene &gn,int num1,int num2) {
         q.pop();
         used[cur_lut]=1;
         pair<int,int> ans = gn.luts[cur_lut].get();
+        //gn.luts[cur_lut].input.clear();
         for (int i=cur_lut*lut_connections_count*2;i<(cur_lut+1)*lut_connections_count*2;++i) {
             if (gn.lut_connections[i]) {
                 //gn.luts[(i%(lut_connections_count*2))/2].input.push_back(i/(lut_connections_count*2));
@@ -240,7 +344,8 @@ int LUT_Schema::Fitness(gene &gn,int num1,int num2) {
         }
 	}
 	int total=0;
-    for (int i=10+lut_count;i<lut_connections_count;++i) {
+    for (int i=bytes_count*2+lut_count;i<lut_connections_count;++i) {
+        gn.luts[i].get();
         total+=(int)(gn.luts[i].a)*(1<<(lut_connections_count-i-1));
     }
     //cout << "total in fitness is " << total << ", num1 is " << num1 << ", num2 is " << num2 << endl;
@@ -251,16 +356,22 @@ int LUT_Schema::CreateFitnesses() {
 	double avgfit = 0;
 	int fitness = 0;
 	int num1,num2;
+	int lut_connections_count = bytes_count*2+bytes_count*2+lut_count;
 	for(int i=0;i<MAXPOP;i++) {
-        cout << "Counting fitness for " << i << endl;
+       // cout << "Counting fitness for " << i << endl;
         fitness=0;
-        for (int j=0;j<MAXTESTS;++j) {
-			num1=rand()%(1<<5);
-			num2=rand()%(1<<5);
-			fitness += Fitness(population[i],num1,num2);
-		}
+        for (num1=0;num1<(1<<bytes_count);++num1) {
+            for (num2=0;num2<(1<<bytes_count);++num2) {
+                for (int j=0;j<lut_connections_count;++j) {
+                    population[i].luts[j].input.clear();
+                }
+                int local_fitness = Fitness(population[i],num1,num2);
+                fitness += local_fitness;
+                //cout << "For " << num1 << "*" << num2 << " error was " << local_fitness << endl;
+            }
+        }
 		population[i].fitness=fitness;
-        cout << "Counted fitness for " << i << ": " << fitness << endl;
+        //cout << "Counted fitness for " << i << ": " << fitness << endl;
 		avgfit += fitness;
 		if (fitness == 0) {
 			return i;
@@ -303,16 +414,16 @@ int LUT_Schema::GetIndex(double val) {
 }
 
 gene LUT_Schema::Breed(int p1, int p2) {
-    int lut_connections_count = 10+10+lut_count;
+    int lut_connections_count = bytes_count*2+bytes_count*2+lut_count;
 
 	int crossover_lut_values = rand() % (lut_count*16-1)+1;// Create the crossover point (not first).
-	int crossover_lut_connections = rand() % (lut_connections_count*lut_connections_count*2*-1)+1;// Create the crossover point (not first).
+	int crossover_lut_connections = rand() % (lut_connections_count*lut_connections_count*2-1)+1;// Create the crossover point (not first).
 	int first = rand() % 100;// Which parent comes first?
 
 	gene child = population[p1];// Child is all first parent initially.
 
 	int initial_lut_values = 0, final_lut_values = (lut_count*16-1);// The crossover boundaries.
-	int initial_lut_connections = 0, final_lut_connections = (lut_connections_count*lut_connections_count*2*-1);// The crossover boundaries.
+	int initial_lut_connections = 0, final_lut_connections = (lut_connections_count*lut_connections_count*2-1);// The crossover boundaries.
 	if (first < 50) {
         initial_lut_values = crossover_lut_values;
         initial_lut_connections = crossover_lut_connections;
@@ -324,14 +435,17 @@ gene LUT_Schema::Breed(int p1, int p2) {
 
 	for(int i=initial_lut_values;i<final_lut_values;i++) {// Crossover!
 		child.lut_values[i] = population[p2].lut_values[i];
-		if (rand() % 101 < 5) child.lut_values[i] = rand() % 2;
+		if (rand() % 101 < 10) child.lut_values[i] = rand() % 2;
 	}
 
 	for(int i=initial_lut_connections;i<final_lut_connections;i++) {// Crossover!
 		child.lut_connections[i] = population[p2].lut_connections[i];
-		if (i/(lut_connections_count*2)<(i%(lut_connections_count*2))/2
-            && (i%(lut_connections_count*2))/2>=10) {
-            if (rand() % 101 < 5) child.lut_connections[i] = rand() % 2;
+		if (i/(lut_connections_count*2)<bytes_count*2
+                    && (i%(lut_connections_count*2))/2>=(lut_connections_count-bytes_count*2)) {
+                }
+		else if (i/(lut_connections_count*2)<(i%(lut_connections_count*2))/2
+            && (i%(lut_connections_count*2))/2>=bytes_count*2) {
+            if (rand() % 101 < 10) child.lut_connections[i] = rand() % 2;
 		}
 	}
 
